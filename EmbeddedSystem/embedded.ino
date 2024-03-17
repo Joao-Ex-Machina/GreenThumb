@@ -16,6 +16,7 @@
 #include <FB_Error.h>
 #include <FB_Const.h>
 #include <time.h>
+#include "DHT.h"
 
 #define DB_URL "iot-alarm-app-gr15-default-rtdb.europe-west1.firebasedatabase.app"
 #define API_KEY "AIzaSyACS5i0U2R7gXSRt2J6UDkOCidJQ7m12Ws"
@@ -32,14 +33,18 @@
 #define waterTurbidity 4
 #define waterLevel 0
 
-#define 0Humidure
-#define 1Humidure
+#define 0HumidurePin
+#define 1HumidurePin
 
+typedef enum TankCode {NO_WATER, DIRTY_WATER, HOT_WATER};
+
+DHT 0Humidure(0HumidurePin, DHT11);
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 18000;   //Replace with your GMT offset (seconds)
 const int   daylightOffset_sec = 0;
 char verboseWaterTime[128];
 time_t waterTime;
+float 0hum, 1hum, 0temp, 1temp;
 // Define the Firebase Data object
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -51,8 +56,6 @@ void setup() {
     pinMode(pumpWater, OUTPUT);
     pinMode(pumpRemove, OUTPUT);
     pinMode(pumpAdd, OUTPUT);
-    pinMode(0Humidure, INPUT);
-    pinMode(1Humidure, INPUT);
     pinMode(waterLevel, INPUT);
     pinMode(waterTurbidity, INPUT);
     pinMode(WaterTemperature,INPUT);
@@ -99,13 +102,12 @@ void setup() {
 void loop() {
     
 	readFromRTDB();
-	
+	generateThresholds();
 	 if(manualWater)
         water();
+    readFromTank();
     		
-
-            
-    delay(1000);
+    delay(30000);
 }
 
 void water(){
@@ -119,6 +121,7 @@ void water(){
     
 }
 
+void 
 void readFromRTDB(){
 	Firebase.RTDB.getBool(&fbdo,"WaterManual");
     manualWater=fbdo.boolData();
@@ -135,8 +138,8 @@ void readFromRTDB(){
 void readFromTank(){
 	double Turbidity = analogRead(waterTurbidity);
 	double Temperature = analogRead(waterTemperature);
-	bool Level = digitalRead(waterLevel)
-	if(waterLevel){
+	bool Level = digitalRead(waterLevel);
+	if(Level){
 		Firebase.RTDB.setFloat(&fbdo,"TankTurbidity", Turbidity);
 		verboseTurbidity(Turbidity);
 		
@@ -144,6 +147,8 @@ void readFromTank(){
 			CorrectTank(DIRTY_WATER);
 			return;
 		}
+
+        if ()
 			
 	}
 	else {
@@ -152,21 +157,34 @@ void readFromTank(){
 	}
 }
 
-void CorrectTank(int code){
-
+void CorrectTank( TankCode code){
+    if(code==NO_WATER){
+        digitalWrite(pumpAdd, HIGH);
+        delay(60000);
+        digitalWrite(pumpAdd, LOW);
+        return
+    }
+    if(code==DIRTY_WATER){
+        digitalWrite(pumpRemove, HIGH);
+        digitalWrite(pumpAdd, HIGH);
+        while(analogRead(waterTurbidity)<turbiThreshold)
+                delay(10000);
+        digitalWrite(pumpRemove, LOW);
+        digitalWrite(pumpAdd, LOW);
+    }
 }
 
 void readFromLevels(){}
 
 void verboseTurbidity(double Turbidity){
 	String vTurbi;
-	if()
+	if(Turbidity >= 4.10)
 		vTurbi="Clear";
-	if()
-		vTurbi="Slightly Murky";
-	if()
+	if(Turbidity < 4.10 && Turbidity >= 4.0)
+		vTurbi="Slightly Dirty";
+	if(Turbidity < 4.0 && Turbity >= 3.5 )
 		vTurbi="Dirty";
-	if()
+	if(Turbidity < 3.5)
 		vTurbi="Very Dirty";
 
 Firebase.RTDB.setString(&fbdo,"TankTurbidityVerbose", vTurbi);
@@ -178,13 +196,13 @@ void generateThresholds(){
 	if(WaterSaving){
 		tempThreshold=;
 		humThreshold=;
-		turbiThreshold=;
+		turbiThreshold=3.5;
     }
 
 	else{
 		tempThreshold=;
 		humThreshold=;
-		turbiThreshold=;
+		turbiThreshold= 4.0;
     }
 	
 }
