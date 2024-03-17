@@ -24,10 +24,22 @@
 
 #define LED 16
 
+#define pumpWater 12 
+#define pumpRemove 13
+#define pumpAdd 14
+
+#define waterTemperature 5
+#define waterTurbidity 4
+#define waterLevel 0
+
+#define 0Humidure
+#define 1Humidure
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 18000;   //Replace with your GMT offset (seconds)
 const int   daylightOffset_sec = 0;
 char verboseWaterTime[128];
+time_t waterTime;
 // Define the Firebase Data object
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -85,36 +97,104 @@ void setup() {
 }
 
 void loop() {
-    Firebase.RTDB.getBool(&fbdo,"user_call_manual_water");
-    manualWater=fbdo.boolData();
     
-    if(manualWater){
+	readFromRTDB();
+	
+	 if(manualWater)
         water();
-        Firebase.RTDB.setBool(&fbdo,"alarm_status", true);
-    }
-    
-    Firebase.RTDB.getBool(&fbdo,"user_enable_auto_water");
-    enAutoWater=fbdo.boolData();
-    
+    		
+
             
     delay(1000);
 }
 
 void water(){
     digitalWrite(pumpWater, HIGH);
+    delay();
+	digitalWrite(pumpWater, LOW);
+	Firebase.RTDB.setBool(&fbdo,"WaterManual", false);
+	waterTime=0;
+    updateTime();
+	
     
 }
 
+void readFromRTDB(){
+	Firebase.RTDB.getBool(&fbdo,"WaterManual");
+    manualWater=fbdo.boolData();
+     
+    Firebase.RTDB.getBool(&fbdo,"WaterAuto");
+    enAutoWater=fbdo.boolData();
+    
+    Firebase.RTDB.getBool(&fbdo,"WaterSaving");
+    enWaterSaving=fbdo.boolData();
 
 
-void verboseTurbidity(){}
+}
 
-void getTime()
+void readFromTank(){
+	double Turbidity = analogRead(waterTurbidity);
+	double Temperature = analogRead(waterTemperature);
+	bool Level = digitalRead(waterLevel)
+	if(waterLevel){
+		Firebase.RTDB.setFloat(&fbdo,"TankTurbidity", Turbidity);
+		verboseTurbidity(Turbidity);
+		
+		if (vTurbi < turbiThreshold){
+			CorrectTank(DIRTY_WATER);
+			return;
+		}
+			
+	}
+	else {
+		CorrectTank(NO_WATER);
+		return;
+	}
+}
+
+void CorrectTank(int code){
+
+}
+
+void readFromLevels(){}
+
+void verboseTurbidity(double Turbidity){
+	String vTurbi;
+	if()
+		vTurbi="Clear";
+	if()
+		vTurbi="Slightly Murky";
+	if()
+		vTurbi="Dirty";
+	if()
+		vTurbi="Very Dirty";
+
+Firebase.RTDB.setString(&fbdo,"TankTurbidityVerbose", vTurbi);
+
+}
+
+void generateThresholds(){
+	
+	if(WaterSaving){
+		tempThreshold=;
+		humThreshold=;
+		turbiThreshold=;
+    }
+
+	else{
+		tempThreshold=;
+		humThreshold=;
+		turbiThreshold=;
+    }
+	
+}
+
+void updateTime()
 {
   time_t rawtime;
   struct tm * timeinfo;
   time (&rawtime);
   timeinfo = localtime (&rawtime);
-  Serial.println(asctime(timeinfo));
+  strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %Y %H:%M", tm); 
   delay(1000);
 }
