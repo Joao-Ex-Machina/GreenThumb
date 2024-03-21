@@ -33,18 +33,20 @@
 #define waterTurbidity 4
 #define waterLevel 0
 
+#define NUM_LEVEL 2
 #define 0HumidurePin
 #define 1HumidurePin
 
 typedef enum TankCode {NO_WATER, DIRTY_WATER, HOT_WATER};
 
-DHT 0Humidure(0HumidurePin, DHT11);
+DHT humidureSensors[NUM_LEVEL]{DHT(0HumidurePin, DHT11),DHT(1HumidurePin, DHT11)};
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 18000;   //Replace with your GMT offset (seconds)
 const int   daylightOffset_sec = 0;
 char verboseWaterTime[128];
 time_t waterTime;
-float 0hum, 1hum, 0temp, 1temp;
+time_t refTime;
 // Define the Firebase Data object
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -90,13 +92,20 @@ void setup() {
     Firebase.begin(&config, &auth);
     Firebase.reconnectWiFi(true);
     Serial.print("Connecting to Firebase");
+    
     while(!(Firebase.ready())){
       Serial.print(".");
       delay(1000);  
     }
+
     Serial.println("");
     Serial.println("Connected to Firebase!");
     tone(buzzer,440,500);
+    
+    //waterTime=readTimefromRTDB();
+    readFromRTDB();
+    for(i=0; i<NUM_LEVEL; i++)
+        humidureSensors[i].begin();
 }
 
 void loop() {
@@ -106,6 +115,9 @@ void loop() {
 	 if(manualWater)
         water();
     readFromTank();
+    readFromLevels();
+    if((refTime-waterTime>timeThreshold) && enAutoWater)
+        water();
     		
     delay(30000);
 }
@@ -115,13 +127,12 @@ void water(){
     delay();
 	digitalWrite(pumpWater, LOW);
 	Firebase.RTDB.setBool(&fbdo,"WaterManual", false);
-	waterTime=0;
     updateTime();
 	
     
 }
 
-void 
+
 void readFromRTDB(){
 	Firebase.RTDB.getBool(&fbdo,"WaterManual");
     manualWater=fbdo.boolData();
@@ -141,14 +152,18 @@ void readFromTank(){
 	bool Level = digitalRead(waterLevel);
 	if(Level){
 		Firebase.RTDB.setFloat(&fbdo,"TankTurbidity", Turbidity);
-		verboseTurbidity(Turbidity);
 		
-		if (vTurbi < turbiThreshold){
+        verboseTurbidity(Turbidity);
+		
+		if (Turbidity < turbiThreshold){
 			CorrectTank(DIRTY_WATER);
 			return;
 		}
 
-        if ()
+        if (Temperature < tempThreshold){
+            CorrectTank(HOT_WATER);
+            return;
+        }
 			
 	}
 	else {
@@ -157,12 +172,13 @@ void readFromTank(){
 	}
 }
 
-void CorrectTank( TankCode code){
+void CorrectTank(TankCode code){
     if(code==NO_WATER){
         digitalWrite(pumpAdd, HIGH);
         delay(60000);
         digitalWrite(pumpAdd, LOW);
-        return
+            
+        return;
     }
     if(code==DIRTY_WATER){
         digitalWrite(pumpRemove, HIGH);
@@ -174,7 +190,27 @@ void CorrectTank( TankCode code){
     }
 }
 
-void readFromLevels(){}
+void readFromLevels(){
+    float humi[NUM_LEVEL];
+    float temp[NUM_LEVEL];
+    for (int i=0; i<NUM_LEVEL; i++){
+        humi[i]=humidureSensors[i].readHumidity();
+        temp[i]=humidureSensors[i].readTemperature();
+    }
+    
+    /*Change for number of levels*/
+    Firebase.RTDB.setFloat(&fbdo,"Level0Humidity", humi[0]);
+    Firebase.RTDB.setFloat(&fbdo,"Level0Temp", temp[0]);
+
+    for (int i=0; i<NUM_LEVEL; i++){
+        if(humi[i] < humiThreshold[i] || temp[i] > tempThreshold[i]){
+            water();
+            return;
+        }
+    }
+
+    
+}
 
 void verboseTurbidity(double Turbidity){
 	String vTurbi;
@@ -194,14 +230,16 @@ Firebase.RTDB.setString(&fbdo,"TankTurbidityVerbose", vTurbi);
 void generateThresholds(){
 	
 	if(WaterSaving){
-		tempThreshold=;
-		humThreshold=;
+		tempThreshold=0.0;
+        waterTempThreshold=0.0;
+		humThreshold=0.0;
 		turbiThreshold=3.5;
     }
 
 	else{
-		tempThreshold=;
-		humThreshold=;
+		tempThreshold=0.0;
+        waterTempThreshold=0.0;
+		humThreshold=0.0;
 		turbiThreshold= 4.0;
     }
 	
@@ -209,10 +247,11 @@ void generateThresholds(){
 
 void updateTime()
 {
-  time_t rawtime;
-  struct tm * timeinfo;
-  time (&rawtime);
-  timeinfo = localtime (&rawtime);
-  strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %Y %H:%M", tm); 
-  delay(1000);
+    time_t rawtime;
+    struct tm * timeinfo;
+    time (&rawtime);
+    timeinfo = localtime (&rawtime);
+    waterTime=time(&refTime);
+    strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %Y %H:%M", tm); 
+    delay(1000);
 }
