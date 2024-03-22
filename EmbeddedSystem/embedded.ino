@@ -18,33 +18,46 @@
 #include <time.h>
 #include "DHT.h"
 
+/*Firebase keys*/
 #define DB_URL "iot-alarm-app-gr15-default-rtdb.europe-west1.firebasedatabase.app"
 #define API_KEY "AIzaSyACS5i0U2R7gXSRt2J6UDkOCidJQ7m12Ws"
+
+/*WiFi credentials*/
 #define WIFI_SSID "Labs-LSD"
 #define WIFI_PASSWORD "aulaslsd"
 
-#define LED 16
+/*->Define Pins<-*/
+    #define LED 16
+    
+    /*Pump Relays*/
+    #define pumpWater 12 
+    //#define pumpRemove 13
+    //#define pumpAdd 14
 
-#define pumpWater 12 
-#define pumpRemove 13
-#define pumpAdd 14
+    /*Water quality*/
+    #define waterTemperature 5
+    #define waterTurbidity 4
+    #define waterLevel 0
+    
+    /*Level evaluation*/
+    #define NUM_LEVEL 2
+    #define 0HumidurePin
+    #define 1HumidurePin
 
-#define waterTemperature 5
-#define waterTurbidity 4
-#define waterLevel 0
-
-#define NUM_LEVEL 2
-#define 0HumidurePin
-#define 1HumidurePin
+/*define for number of pumps*/
+#define HAS_PUMP_REMOVE 0
+#define HAS_PUMP_ADD 0
 
 typedef enum TankCode {NO_WATER, DIRTY_WATER, HOT_WATER};
 
+/*HAve to manually init them*/
 DHT humidureSensors[NUM_LEVEL]{DHT(0HumidurePin, DHT11),DHT(1HumidurePin, DHT11)};
 
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 18000;   //Replace with your GMT offset (seconds)
-const int   daylightOffset_sec = 0;
-char verboseWaterTime[128];
+const long  gmtOffset_sec = 0;   //Replace with your GMT offset (seconds)
+const int   daylightOffset_sec = 3600;
+
+char verboseWaterTime[512];
 time_t waterTime;
 time_t refTime;
 // Define the Firebase Data object
@@ -102,10 +115,11 @@ void setup() {
     Serial.println("Connected to Firebase!");
     tone(buzzer,440,500);
     
-    //waterTime=readTimefromRTDB();
-    readFromRTDB();
     for(i=0; i<NUM_LEVEL; i++)
         humidureSensors[i].begin();
+
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    readFromRTDB();
 }
 
 void loop() {
@@ -115,18 +129,20 @@ void loop() {
 	 if(manualWater)
         water();
     readFromTank();
+    
     readFromLevels();
-    if((refTime-waterTime>timeThreshold) && enAutoWater)
+
+    if((getCurrenttime()-waterTime > timeThreshold) && enAutoWater && enWaterSchedule)
         water();
     		
-    delay(30000);
+    delay(60000 * 5); /*re-check in 5 minutes*/ 
 }
 
 void water(){
     digitalWrite(pumpWater, HIGH);
     delay();
 	digitalWrite(pumpWater, LOW);
-	Firebase.RTDB.setBool(&fbdo,"WaterManual", false);
+	Firebase.RTDB.setBool(&fbdo,"waterManual", false); /*overide a Manual call to water*/
     updateTime();
 	
     
@@ -134,14 +150,23 @@ void water(){
 
 
 void readFromRTDB(){
-	Firebase.RTDB.getBool(&fbdo,"WaterManual");
+	Firebase.RTDB.getBool(&fbdo,"waterManual");
     manualWater=fbdo.boolData();
      
-    Firebase.RTDB.getBool(&fbdo,"WaterAuto");
+    Firebase.RTDB.getBool(&fbdo,"waterAuto");
     enAutoWater=fbdo.boolData();
     
-    Firebase.RTDB.getBool(&fbdo,"WaterSaving");
+    Firebase.RTDB.getBool(&fbdo,"waterSaving");
     enWaterSaving=fbdo.boolData();
+
+    Firebase.RTDB.getBool(&fbdo,"waterScheduleEnable");
+    enWaterSchedule=fbdo.BoolData();
+
+    Firebase.RTDB.getFloat(&fbdo,"waterSchedule");
+    timeThreshold=(fbdo.floatData())*3600;
+
+    Firebase.RTDB.getFloat(&fbdo,"waterLastTimeUNIX");
+    waterTime=(time_t)fbdo.floatData();
 
 
 }
@@ -152,22 +177,33 @@ void readFromTank(){
 	bool Level = digitalRead(waterLevel);
 	if(Level){
 		Firebase.RTDB.setFloat(&fbdo,"TankTurbidity", Turbidity);
-		
+		Firebase.RTDB.setBool(&fbdo,"TankVolumePing", false);
+
         verboseTurbidity(Turbidity);
 		
 		if (Turbidity < turbiThreshold){
-			CorrectTank(DIRTY_WATER);
+			Firebase.RTDB.setBool(&fbdo,"TankTurbidityPing", true );
+            CorrectTank(DIRTY_WATER);
 			return;
 		}
+        else{
+           Firebase.RTDB.setBool(&fbdo,"TankTurbidityPing", false);
+        }
 
         if (Temperature < tempThreshold){
+            Firebase.RTDB.setBool(&fbdo,"TankTemperaturePing", true);
             CorrectTank(HOT_WATER);
             return;
+        }
+        else{
+           Firebase.RTDB.setBool(&fbdo,"TankTemperaturePing", false);
         }
 			
 	}
 	else {
-		CorrectTank(NO_WATER);
+        Firebase.RTDB.setBool(&fbdo,"TankVolumePing", false);
+		if(HAS_PUMP_ADD && HAS_PUMP_REMOVE)
+            CorrectTank(NO_WATER);
 		return;
 	}
 }
@@ -177,16 +213,27 @@ void CorrectTank(TankCode code){
         digitalWrite(pumpAdd, HIGH);
         delay(60000);
         digitalWrite(pumpAdd, LOW);
-            
         return;
     }
+    
     if(code==DIRTY_WATER){
         digitalWrite(pumpRemove, HIGH);
         digitalWrite(pumpAdd, HIGH);
         while(analogRead(waterTurbidity)<turbiThreshold)
-                delay(10000);
+            delay(10000);
         digitalWrite(pumpRemove, LOW);
         digitalWrite(pumpAdd, LOW);
+        return;
+    }
+    
+    if(code==HOT_WATER){
+        digitalWrite(pumpRemove, HIGH);
+        digitalWrite(pumpAdd, HIGH);
+        while(analogRead(waterTemperature)>tempThreshold)
+            delay(10000);
+        digitalWrite(pumpRemove, LOW);
+        digitalWrite(pumpAdd, LOW);
+        return;
     }
 }
 
@@ -198,13 +245,14 @@ void readFromLevels(){
         temp[i]=humidureSensors[i].readTemperature();
     }
     
-    /*Change for number of levels*/
+    /*Change for number of levels */
     Firebase.RTDB.setFloat(&fbdo,"Level0Humidity", humi[0]);
     Firebase.RTDB.setFloat(&fbdo,"Level0Temp", temp[0]);
 
     for (int i=0; i<NUM_LEVEL; i++){
         if(humi[i] < humiThreshold[i] || temp[i] > tempThreshold[i]){
-            water();
+            if(enAutoWater)
+                water();
             return;
         }
     }
@@ -245,13 +293,32 @@ void generateThresholds(){
 	
 }
 
-void updateTime()
-{
-    time_t rawtime;
+void updateTime(){
     struct tm * timeinfo;
-    time (&rawtime);
-    timeinfo = localtime (&rawtime);
-    waterTime=time(&refTime);
-    strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %Y %H:%M", tm); 
+    if(!getLocalTime(&timeinfo)){
+        Serial.println("Failed to obtain time");
+        return;
+    }
+
+    waterTime=mktime(&timeinfo);
+    
+    strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %H:%M", timeinfo);
+    Firebase.RTDB.setString(&fbdo,"waterLastTime", verboseWaterTime);
+    Firebase.RTDB.setFloat(&fbdo, "waterLastTimeUNIX", waterTime);   
+
     delay(1000);
 }
+
+time_t getCurrenttime(){
+    struct tm * timeinfo;
+    time_t currTime;    
+    if(!getLocalTime(&timeinfo)){
+        Serial.println("Failed to obtain time");
+        return;
+    }
+    
+    currTime=mktime(&timeinfo);
+    return currTime;
+}
+
+
