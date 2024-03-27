@@ -40,7 +40,7 @@
     #define waterLevel 0
     
     /*Level evaluation*/
-    #define NUM_LEVEL 2
+    #define NUM_LEVEL 1
     #define HumidurePin0 4
     #define HumidurePin1 5
 
@@ -50,8 +50,8 @@
 
 typedef enum TankCode {NO_WATER, DIRTY_WATER, HOT_WATER};
 
-/*HAve to manually init them*/
-DHT humidureSensors[NUM_LEVEL]{DHT(HumidurePin0, DHT11),DHT(HumidurePin1, DHT11)};
+/*Have to manually init them*/
+DHT humidureSensors[NUM_LEVEL]{DHT(HumidurePin0, DHT11)/*,DHT(HumidurePin1, DHT11)*/};
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;   //Replace with your GMT offset (seconds)
@@ -90,7 +90,7 @@ void setup() {
     Serial.println("");
     Serial.println("Connected to WiFi!");
     
-    config.api_key =API_KEY;
+    config.api_key = API_KEY;
     
     config.database_url = DB_URL;
     
@@ -272,7 +272,7 @@ void verboseTurbidity(double Turbidity){
 	if(Turbidity < 3.5)
 		vTurbi="Very Dirty";
 
-Firebase.RTDB.setString(&fbdo,"TankTurbidityVerbose", vTurbi);
+    Firebase.RTDB.setString(&fbdo,"TankTurbidityVerbose", vTurbi);
 
 }
 
