@@ -30,19 +30,19 @@
     #define LED 16
     
     /*Pump Relays*/
-    #define pumpWater 12 
+    #define pumpWater 14
     #define pumpRemove 13
-    #define pumpAdd 14
+    #define pumpAdd 12
 
     /*Water quality*/
     #define waterTemperature 5
     #define waterTurbidity 4
-    #define waterLevel 0
+    #define waterLevel 2
     
     /*Level evaluation*/
     #define NUM_LEVEL 1
-    #define HumidurePin0 4
-    #define HumidurePin1 5
+    #define HumidurePin0 15
+    //#define HumidurePin1 
 
 /*define for number of pumps*/
 #define HAS_PUMP_REMOVE 0
@@ -55,7 +55,9 @@ DHT humidureSensors[NUM_LEVEL]{DHT(HumidurePin0, DHT11)/*,DHT(HumidurePin1, DHT1
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;   //Replace with your GMT offset (seconds)
-const int   daylightOffset_sec = 3600;
+
+//const int   daylightOffset_sec = 3600;
+const int   daylightOffset_sec = 0;
 
 char verboseWaterTime[512];
 time_t waterTime,timeThreshold;
@@ -128,17 +130,17 @@ void loop() {
         water();
     readFromTank();
     
-    readFromLevels();
+    //readFromLevels();
 
     if((getCurrenttime()-waterTime > timeThreshold) && enAutoWater && enWaterSchedule)
         water();
     		
-    delay(60000 * 5); /*re-check in 5 minutes*/ 
+    delay(60000 * 0.5); /*re-check in 0.5 minutes*/ 
 }
 
 void water(){
     digitalWrite(pumpWater, HIGH);
-    delay(3600);
+    delay(60*1000);
 	digitalWrite(pumpWater, LOW);
 	Firebase.RTDB.setBool(&fbdo,"waterManual", false); /*overide a Manual call to water*/
     updateTime();
@@ -148,6 +150,7 @@ void water(){
 
 
 void readFromRTDB(){
+  Serial.println("Reading from RTDB");
 	Firebase.RTDB.getBool(&fbdo,"waterManual");
     manualWater=fbdo.boolData();
      
@@ -161,7 +164,7 @@ void readFromRTDB(){
     enWaterSchedule=fbdo.boolData();
 
     Firebase.RTDB.getFloat(&fbdo,"waterSchedule");
-    timeThreshold=(time_t)(fbdo.floatData())*3600;
+    timeThreshold=(time_t)(fbdo.floatData())*1000*3600;
 
     Firebase.RTDB.getFloat(&fbdo,"waterLastTimeUNIX");
     waterTime=(time_t)fbdo.floatData();
@@ -209,7 +212,7 @@ void readFromTank(){
 void CorrectTank(TankCode code){
     if(code==NO_WATER){
         digitalWrite(pumpAdd, HIGH);
-        delay(60000);
+        delay(60*1000);
         digitalWrite(pumpAdd, LOW);
         return;
     }
@@ -219,7 +222,7 @@ void CorrectTank(TankCode code){
           digitalWrite(pumpRemove, HIGH);
         digitalWrite(pumpAdd, HIGH);
         while(analogRead(waterTurbidity)<turbiThreshold)
-            delay(10000);
+            delay(10*1000);
         digitalWrite(pumpRemove, LOW);
         digitalWrite(pumpAdd, LOW);
         return;
@@ -230,7 +233,7 @@ void CorrectTank(TankCode code){
             digitalWrite(pumpRemove, HIGH);
         digitalWrite(pumpAdd, HIGH);
         while(analogRead(waterTemperature)>tempThreshold)
-        delay(10000);
+        delay(10*1000);
         if(HAS_PUMP_REMOVE)
             digitalWrite(pumpRemove, LOW);
         digitalWrite(pumpAdd, LOW);
@@ -302,8 +305,11 @@ void updateTime(){
     }
 
     waterTime=mktime(&timeinfo);
-    
     strftime(verboseWaterTime, sizeof(verboseWaterTime), "%d %b %H:%M", &timeinfo);
+    Serial.println("Water time at:");
+    Serial.println(verboseWaterTime);
+    Serial.println("Which is UNIX time:");
+    Serial.println(waterTime);
     Firebase.RTDB.setString(&fbdo,"waterLastTime", verboseWaterTime);
     Firebase.RTDB.setFloat(&fbdo, "waterLastTimeUNIX", waterTime);   
 
